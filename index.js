@@ -1,32 +1,38 @@
 import fs from "fs";
 import { Server } from "socket.io";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+
+// MongoDB verbinden
+dotenv.config();
+const username = encodeURIComponent(process.env.DB_USERNAME);
+const password = encodeURIComponent(process.env.DB_PASSWORD);
+
+await mongoose.connect(`mongodb+srv://${username}:${password}@fuschcluster.3nozk.mongodb.net/?retryWrites=true&w=majority&appName=FuschCluster`);
+
+const CanvasState = mongoose.model('CanvasState', new mongoose.Schema({ data: String }));
 
 const io = new Server(3000, {
   cors: {
-    origin: ["https://fusch.fun", "http://localhost:5173"],
-    methods: ["GET", "POST"]
+    origin: ["http://localhost:5173", "https://fusch.fun/"]
   }
 });
 
-let canvasState = "";
-
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   console.log("User connected");
 
-  // Sende den aktuellen Canvas-Zustand an neue Benutzer
-  socket.on("requestCanvasState", () => {
-    if (canvasState) {
-      socket.emit("canvasState", canvasState);
-    }
-  });
+  // Lade den gespeicherten Zustand
+  const savedState = await CanvasState.findOne();
+  if (savedState) {
+    socket.emit("canvasState", savedState.data);
+  }
 
   socket.on("draw", (data) => {
     socket.broadcast.emit("draw", data);
   });
 
-  socket.on("saveCanvasState", (state) => {
-    canvasState = state;
-    fs.writeFileSync("canvasState.txt", state);
+  socket.on("saveCanvasState", async (state) => {
+    await CanvasState.updateOne({}, { data: state }, { upsert: true });
   });
 
   socket.on("disconnect", () => {
@@ -34,9 +40,4 @@ io.on("connection", (socket) => {
   });
 });
 
-// Lade den Canvas-Zustand beim Start
-try {
-  canvasState = fs.readFileSync("canvasState.txt", "utf-8");
-} catch (err) {
-  console.log("No existing canvas state found.");
-}
+console.log("Socket.IO server running on port 3000");

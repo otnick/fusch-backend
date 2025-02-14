@@ -14,7 +14,7 @@ const CanvasState = mongoose.model('CanvasState', new mongoose.Schema({ data: St
 
 const io = new Server(3000, {
   cors: {
-    origin: ["http://localhost:5173", "https://fusch.fun/"]
+    origin: ["http://localhost:5173", "https://fusch.fun"]
   }
 });
 

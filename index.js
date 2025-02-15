@@ -10,6 +10,8 @@ const io = new Server(3000, {
 
 let canvasState = "";
 
+console.log("Server started");
+
 io.on("connection", (socket) => {
   console.log("User connected");
 

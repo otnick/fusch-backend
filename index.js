@@ -1,5 +1,5 @@
-import fs from "fs";
-import { Server } from "socket.io";
+import fs from 'fs';
+import { Server } from 'socket.io';
 
 const io = new Server(3000, {
   cors: {
@@ -8,27 +8,25 @@ const io = new Server(3000, {
   }
 });
 
-let canvasState = "";
+let drawCommands = [];
 
 console.log("Server started");
 
 io.on("connection", (socket) => {
   console.log("User connected");
 
-  // Sende den aktuellen Canvas-Zustand an neue Benutzer
   socket.on("requestCanvasState", () => {
-    if (canvasState) {
-      socket.emit("canvasState", canvasState);
-    }
+    socket.emit("canvasState", drawCommands);
   });
 
   socket.on("draw", (data) => {
+    drawCommands.push(data);
     socket.broadcast.emit("draw", data);
   });
 
-  socket.on("saveCanvasState", (state) => {
-    canvasState = state;
-    fs.writeFileSync("canvasState.txt", state);
+  socket.on("clearCanvas", () => {
+    drawCommands = [];
+    io.emit("canvasState", drawCommands);
   });
 
   socket.on("disconnect", () => {
@@ -36,9 +34,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// Lade den Canvas-Zustand beim Start
 try {
-  canvasState = fs.readFileSync("canvasState.txt", "utf-8");
+  const savedCommands = fs.readFileSync("canvasCommands.json", "utf-8");
+  drawCommands = JSON.parse(savedCommands);
 } catch (err) {
-  console.log("No existing canvas state found.");
+  console.log("No existing canvas commands found.");
 }
+
+setInterval(() => {
+  fs.writeFileSync("canvasCommands.json", JSON.stringify(drawCommands));
+}, 5000);

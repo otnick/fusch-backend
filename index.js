@@ -10,6 +10,8 @@ const io = new Server(3000, {
 
 let drawCommands = [];
 
+let partyState = false;
+
 console.log("Server started");
 
 io.on("connection", (socket) => {
@@ -27,6 +29,33 @@ io.on("connection", (socket) => {
   socket.on("clearCanvas", () => {
     drawCommands = [];
     io.emit("canvasState", drawCommands);
+  });
+
+  socket.on("undo", () => {
+    drawCommands.pop();
+    io.emit("canvasState", drawCommands);
+  });
+
+  socket.on("redo", () => {
+    const lastCommand = drawCommands[drawCommands.length - 1];
+    if (lastCommand) {
+      drawCommands.push(lastCommand);
+      io.emit("draw", lastCommand);
+    }
+  });
+
+  socket.on("requestPartyState", () => {
+    socket.emit("partyState", partyState);
+  });
+
+  socket.on("togglePartyState", () => {
+    // partystate true for 5 sec
+    partyState = true;
+    io.emit("partyState", partyState);
+    setTimeout(() => {
+      partyState = false;
+      io.emit("partyState", partyState);
+    }, 5000);
   });
 
   socket.on("disconnect", () => {

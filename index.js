@@ -51,10 +51,10 @@ io.on("connection", (socket) => {
   socket.on("togglePartyState", () => {
     // partystate true for 5 sec
     partyState = true;
-    io.emit("partyState", partyState);
+    io.broadcast.emit("partyState", partyState);
     setTimeout(() => {
       partyState = false;
-      io.emit("partyState", partyState);
+      io.broadcast.emit("partyState", partyState);
     }, 5000);
   });
 

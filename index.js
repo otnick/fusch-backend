@@ -43,4 +43,4 @@ try {
 
 setInterval(() => {
   fs.writeFileSync("canvasCommands.json", JSON.stringify(drawCommands));
-}, 5000);
+}, 1000);

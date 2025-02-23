@@ -9,7 +9,6 @@ const io = new Server(3000, {
 });
 
 let drawCommands = [];
-
 let partyState = false;
 
 console.log("Server started");
@@ -17,25 +16,36 @@ console.log("Server started");
 io.on("connection", (socket) => {
   console.log("User connected");
 
+  // Sende aktuellen Canvas-Zustand an neue Clients
   socket.on("requestCanvasState", () => {
     socket.emit("canvasState", drawCommands);
   });
 
+  // Zeichnung empfangen & an andere senden
   socket.on("draw", (data) => {
     drawCommands.push(data);
     socket.broadcast.emit("draw", data);
   });
 
+  // Bild empfangen & an andere senden
+  socket.on("placeImage", (data) => {
+    drawCommands.push(data);
+    io.emit("placeImage", data);
+  });
+
+  // Canvas löschen
   socket.on("clearCanvas", () => {
     drawCommands = [];
     io.emit("canvasState", drawCommands);
   });
 
+  // Letzte Aktion rückgängig machen
   socket.on("undo", () => {
     drawCommands.pop();
     io.emit("canvasState", drawCommands);
   });
 
+  // Letzte Aktion wiederholen
   socket.on("redo", () => {
     const lastCommand = drawCommands[drawCommands.length - 1];
     if (lastCommand) {
@@ -44,12 +54,12 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Party-Modus
   socket.on("requestPartyState", () => {
     socket.emit("partyState", partyState);
   });
 
   socket.on("togglePartyState", () => {
-    // partystate true for 5 sec
     partyState = true;
     io.emit("partyState", partyState);
     setTimeout(() => {
@@ -63,6 +73,7 @@ io.on("connection", (socket) => {
   });
 });
 
+// Laden gespeicherter Daten
 try {
   const savedCommands = fs.readFileSync("canvasCommands.json", "utf-8");
   drawCommands = JSON.parse(savedCommands);
@@ -70,6 +81,7 @@ try {
   console.log("No existing canvas commands found.");
 }
 
+// Speichert alle 5 Sekunden den aktuellen Canvas-Zustand
 setInterval(() => {
   fs.writeFileSync("canvasCommands.json", JSON.stringify(drawCommands));
 }, 5000);

@@ -11,6 +11,15 @@ const io = new Server(3000, {
 let drawCommands = [];
 let partyState = false;
 
+let shirtInterests = [];
+
+try {
+  const savedShirts = fs.readFileSync("shirtInterests.json", "utf-8");
+  shirtInterests = JSON.parse(savedShirts);
+} catch (err) {
+  console.log("No existing shirt interest data found.");
+}
+
 console.log("Server started");
 
 io.on("connection", (socket) => {
@@ -68,6 +77,18 @@ io.on("connection", (socket) => {
     }, 5000);
   });
 
+  // Interesse speichern
+  socket.on("shirtInterest", (data) => {
+    const entry = { name: data.name, size: data.size, timestamp: Date.now() };
+    shirtInterests.push(entry);
+    io.emit("newShirtInterest", entry); // Broadcast an alle Clients
+  });
+
+  // Interessen abrufen
+  socket.on("getShirtInterests", () => {
+    socket.emit("shirtInterests", shirtInterests);
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected");
   });
@@ -84,4 +105,5 @@ try {
 // Speichert alle 5 Sekunden den aktuellen Canvas-Zustand
 setInterval(() => {
   fs.writeFileSync("canvasCommands.json", JSON.stringify(drawCommands));
-}, 5000);
+  fs.writeFileSync("shirtInterests.json", JSON.stringify(shirtInterests));
+}, 10000);

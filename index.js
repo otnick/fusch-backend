@@ -20,10 +20,15 @@ const io = new Server(server, {
 });
 
 // =====================
-// AUDIO: config
+// AUDIO: config + sync state
 // =====================
-// Lege deine WAV z.B. im gleichen Ordner wie server.js ab, in ./audio/set.wav
 const AUDIO_FILE_PATH = path.resolve("./audio/set.wav");
+
+// Audio state: starts when at least 1 client connected; resets when 0
+let audioState = {
+  url: "/audio/set.wav",
+  startedAt: null // Date.now() when "session" started
+};
 
 // Range-supporting audio endpoint
 app.get("/audio/set.wav", (req, res) => {
@@ -36,19 +41,16 @@ app.get("/audio/set.wav", (req, res) => {
   const fileSize = stat.size;
   const range = req.headers.range;
 
-  // Für WebAudio Analyzer + cross-origin Fälle:
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", "audio/wav");
 
   if (!range) {
-    // Ohne Range: ganze Datei senden (kann groß sein!)
     res.setHeader("Content-Length", fileSize);
     fs.createReadStream(AUDIO_FILE_PATH).pipe(res);
     return;
   }
 
-  // Range: bytes=start-end
   const match = /^bytes=(\d+)-(\d*)$/.exec(range);
   if (!match) {
     res.status(416).send("Malformed Range header");
@@ -88,6 +90,12 @@ try {
   console.log("No existing shirt interest data found.");
 }
 
+// =====================
+// PSY MULTI-USER STATE (NEW)
+// =====================
+const psyUsers = new Map();      // socket.id -> {x,y,v,updatedAt}
+const lastPsySentAt = new Map(); // socket.id -> ms
+
 console.log("Server init");
 
 // =====================
@@ -96,6 +104,43 @@ console.log("Server init");
 io.on("connection", (socket) => {
   console.log("User connected", socket.id);
 
+  // ---- audio session control ----
+  // clientsCount is AFTER connection is established
+  if (io.engine.clientsCount === 1) {
+    audioState.startedAt = Date.now();
+  }
+  socket.emit("audio:state", audioState);
+  // --------------------------------
+
+  // ---- psy state ----
+  psyUsers.set(socket.id, { x: 0.5, y: 0.5, v: 0, updatedAt: Date.now() });
+
+  socket.on("requestPsyUsers", () => {
+    const list = Array.from(psyUsers.entries()).map(([id, s]) => ({ id, ...s }));
+    socket.emit("psyUsers", list);
+  });
+
+  socket.on("psy:input", (data) => {
+    if (!data || typeof data.x !== "number" || typeof data.y !== "number") return;
+
+    const now = Date.now();
+    const last = lastPsySentAt.get(socket.id) ?? 0;
+    if (now - last < 33) return; // ~30Hz server-side rate limit
+    lastPsySentAt.set(socket.id, now);
+
+    const x = Math.min(1, Math.max(0, data.x));
+    const y = Math.min(1, Math.max(0, data.y));
+    const v = typeof data.v === "number" ? Math.min(2, Math.max(0, data.v)) : 0;
+
+    const state = { x, y, v, updatedAt: now };
+    psyUsers.set(socket.id, state);
+
+    // broadcast to everyone else
+    socket.broadcast.emit("psyUser", { id: socket.id, ...state });
+  });
+  // --------------------
+
+  // ---- existing canvas stuff ----
   socket.on("requestCanvasState", () => {
     socket.emit("canvasState", drawCommands);
   });
@@ -153,8 +198,25 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected", socket.id);
+
+    // psy cleanup
+    lastPsySentAt.delete(socket.id);
+    psyUsers.delete(socket.id);
+    socket.broadcast.emit("psyUserLeft", { id: socket.id });
+
+    // audio session control: if last client left -> reset session
+    if (io.engine.clientsCount === 0) {
+      audioState.startedAt = null;
+    }
   });
 });
+
+// Resync audio state occasionally (helps late joins if clocks drift a bit)
+setInterval(() => {
+  if (io.engine.clientsCount > 0 && audioState.startedAt) {
+    io.emit("audio:state", audioState);
+  }
+}, 10000);
 
 // Laden gespeicherter Canvas Commands
 try {

@@ -24,11 +24,35 @@ const io = new Server(server, {
 // =====================
 const AUDIO_FILE_PATH = path.resolve("./audio/set.wav");
 
-// Audio state: starts when at least 1 client connected; resets when 0
-let audioState = {
+/**
+ * Audio state:
+ * - startedAt is set when we have at least 1 connected client AND startedAt is null
+ * - startedAt resets to null when the last client disconnects
+ *
+ * Fix vs previous:
+ * - do NOT rely on `clientsCount === 1` timing
+ * - always start a session when needed (startedAt is null) and someone connects
+ */
+let audioState: { url: string; startedAt: number | null } = {
   url: "/audio/set.wav",
-  startedAt: null // Date.now() when "session" started
+  startedAt: null
 };
+
+function ensureAudioSessionRunning() {
+  if (!audioState.startedAt && io.engine.clientsCount > 0) {
+    audioState.startedAt = Date.now();
+    console.log("[AUDIO] session started:", audioState.startedAt, "clients:", io.engine.clientsCount);
+    io.emit("audio:state", audioState);
+  }
+}
+
+function maybeResetAudioSession() {
+  if (io.engine.clientsCount === 0 && audioState.startedAt !== null) {
+    console.log("[AUDIO] session reset (no clients)");
+    audioState.startedAt = null;
+    // optional: broadcast not needed because no clients, but harmless if called later
+  }
+}
 
 // Range-supporting audio endpoint
 app.get("/audio/set.wav", (req, res) => {
@@ -79,9 +103,9 @@ app.get("/health", (_, res) => res.json({ ok: true }));
 // =====================
 // DEIN bisheriger State
 // =====================
-let drawCommands = [];
+let drawCommands: any[] = [];
 let partyState = false;
-let shirtInterests = [];
+let shirtInterests: any[] = [];
 
 try {
   const savedShirts = fs.readFileSync("shirtInterests.json", "utf-8");
@@ -91,10 +115,10 @@ try {
 }
 
 // =====================
-// PSY MULTI-USER STATE (NEW)
+// PSY MULTI-USER STATE
 // =====================
-const psyUsers = new Map();      // socket.id -> {x,y,v,updatedAt}
-const lastPsySentAt = new Map(); // socket.id -> ms
+const psyUsers = new Map<string, { x: number; y: number; v: number; updatedAt: number }>();
+const lastPsySentAt = new Map<string, number>();
 
 console.log("Server init");
 
@@ -102,15 +126,12 @@ console.log("Server init");
 // SOCKET.IO logic
 // =====================
 io.on("connection", (socket) => {
-  console.log("User connected", socket.id);
+  console.log("[SOCKET] connected", socket.id, "clients:", io.engine.clientsCount);
 
-  // ---- audio session control ----
-  // clientsCount is AFTER connection is established
-  if (io.engine.clientsCount === 1) {
-    audioState.startedAt = Date.now();
-  }
+  // ---- audio session control (FIXED) ----
+  ensureAudioSessionRunning();
   socket.emit("audio:state", audioState);
-  // --------------------------------
+  // --------------------------------------
 
   // ---- psy state ----
   psyUsers.set(socket.id, { x: 0.5, y: 0.5, v: 0, updatedAt: Date.now() });
@@ -125,7 +146,7 @@ io.on("connection", (socket) => {
 
     const now = Date.now();
     const last = lastPsySentAt.get(socket.id) ?? 0;
-    if (now - last < 33) return; // ~30Hz server-side rate limit
+    if (now - last < 33) return;
     lastPsySentAt.set(socket.id, now);
 
     const x = Math.min(1, Math.max(0, data.x));
@@ -135,10 +156,8 @@ io.on("connection", (socket) => {
     const state = { x, y, v, updatedAt: now };
     psyUsers.set(socket.id, state);
 
-    // broadcast to everyone else
     socket.broadcast.emit("psyUser", { id: socket.id, ...state });
   });
-  // --------------------
 
   // ---- existing canvas stuff ----
   socket.on("requestCanvasState", () => {
@@ -196,8 +215,8 @@ io.on("connection", (socket) => {
     socket.emit("shirtInterests", shirtInterests);
   });
 
-  socket.on("disconnect", () => {
-    console.log("User disconnected", socket.id);
+  socket.on("disconnect", (reason) => {
+    console.log("[SOCKET] disconnected", socket.id, "reason:", reason, "clients:", io.engine.clientsCount);
 
     // psy cleanup
     lastPsySentAt.delete(socket.id);
@@ -205,14 +224,15 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("psyUserLeft", { id: socket.id });
 
     // audio session control: if last client left -> reset session
-    if (io.engine.clientsCount === 0) {
-      audioState.startedAt = null;
-    }
+    maybeResetAudioSession();
   });
 });
 
 // Resync audio state occasionally (helps late joins if clocks drift a bit)
 setInterval(() => {
+  // If at least one client connected, ensure we have a session running
+  ensureAudioSessionRunning();
+
   if (io.engine.clientsCount > 0 && audioState.startedAt) {
     io.emit("audio:state", audioState);
   }

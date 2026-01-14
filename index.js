@@ -33,9 +33,9 @@ const AUDIO_FILE_PATH = path.resolve("./audio/set.wav");
  * - do NOT rely on `clientsCount === 1` timing
  * - always start a session when needed (startedAt is null) and someone connects
  */
-let audioState: { url: string; startedAt: number | null } = {
+const audioState = {
   url: "/audio/set.wav",
-  startedAt: null
+  startedAt: null // number | null
 };
 
 function ensureAudioSessionRunning() {
@@ -50,7 +50,6 @@ function maybeResetAudioSession() {
   if (io.engine.clientsCount === 0 && audioState.startedAt !== null) {
     console.log("[AUDIO] session reset (no clients)");
     audioState.startedAt = null;
-    // optional: broadcast not needed because no clients, but harmless if called later
   }
 }
 
@@ -65,6 +64,7 @@ app.get("/audio/set.wav", (req, res) => {
   const fileSize = stat.size;
   const range = req.headers.range;
 
+  // CORS + streaming headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", "audio/wav");
@@ -103,9 +103,9 @@ app.get("/health", (_, res) => res.json({ ok: true }));
 // =====================
 // DEIN bisheriger State
 // =====================
-let drawCommands: any[] = [];
+let drawCommands = [];
 let partyState = false;
-let shirtInterests: any[] = [];
+let shirtInterests = [];
 
 try {
   const savedShirts = fs.readFileSync("shirtInterests.json", "utf-8");
@@ -117,8 +117,8 @@ try {
 // =====================
 // PSY MULTI-USER STATE
 // =====================
-const psyUsers = new Map<string, { x: number; y: number; v: number; updatedAt: number }>();
-const lastPsySentAt = new Map<string, number>();
+const psyUsers = new Map();      // socket.id -> {x,y,v,updatedAt}
+const lastPsySentAt = new Map(); // socket.id -> ms
 
 console.log("Server init");
 
@@ -146,7 +146,7 @@ io.on("connection", (socket) => {
 
     const now = Date.now();
     const last = lastPsySentAt.get(socket.id) ?? 0;
-    if (now - last < 33) return;
+    if (now - last < 33) return; // ~30Hz server-side rate limit
     lastPsySentAt.set(socket.id, now);
 
     const x = Math.min(1, Math.max(0, data.x));
@@ -206,7 +206,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("shirtInterest", (data) => {
-    const entry = { name: data.name, size: data.size, timestamp: Date.now() };
+    const entry = { name: data?.name, size: data?.size, timestamp: Date.now() };
     shirtInterests.push(entry);
     io.emit("newShirtInterest", entry);
   });
@@ -230,7 +230,6 @@ io.on("connection", (socket) => {
 
 // Resync audio state occasionally (helps late joins if clocks drift a bit)
 setInterval(() => {
-  // If at least one client connected, ensure we have a session running
   ensureAudioSessionRunning();
 
   if (io.engine.clientsCount > 0 && audioState.startedAt) {

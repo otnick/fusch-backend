@@ -41,8 +41,8 @@ const io = new Server(server, {
 // =====================
 // AUDIO: HTTP file + WS sync state
 // =====================
-const AUDIO_FILE_PATH = path.resolve("./audio/set.wav");
-const AUDIO_PUBLIC_URL = "/audio/set.wav";
+const AUDIO_FILE_PATH = path.resolve("./audio/set.mp3");
+const AUDIO_PUBLIC_URL = "/audio/set.mp3";
 
 const audioState = {
   url: AUDIO_PUBLIC_URL,
@@ -110,7 +110,7 @@ app.get(AUDIO_PUBLIC_URL, (req, res) => {
 
   setAudioCors(req, res);
 
-  res.setHeader("Content-Type", "audio/wav");
+  res.setHeader("Content-Type", "audio/mp3");
   res.setHeader("Cache-Control", "no-store"); // local dev: avoid caching weirdness
 
   if (!range) {

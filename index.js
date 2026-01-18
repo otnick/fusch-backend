@@ -44,20 +44,41 @@ const io = new Server(server, {
 const AUDIO_FILE_PATH = path.resolve("./audio/set.mp3");
 const AUDIO_PUBLIC_URL = "/audio/set.mp3";
 
-const audioState = {
+// Load audioState from file if it exists
+let audioState = {
   url: AUDIO_PUBLIC_URL,
   startedAt: null,  // number | null
   sessionId: null   // string | null
 };
 
+try {
+  const savedState = JSON.parse(fs.readFileSync("audioState.json", "utf-8"));
+  audioState = savedState;
+  console.log("[AUDIO] Session wiederhergestellt:", savedState);
+} catch {
+  console.log("[AUDIO] Neue Session wird erstellt");
+}
+
 function newSessionId() {
   return crypto.randomBytes(6).toString("hex");
+}
+
+function saveAudioState() {
+  try {
+    fs.writeFileSync("audioState.json", JSON.stringify(audioState));
+  } catch (err) {
+    console.error("[AUDIO] Fehler beim Speichern:", err);
+  }
 }
 
 function ensureAudioSessionRunning(reason = "ensure") {
   if (io.engine.clientsCount > 0 && audioState.startedAt === null) {
     audioState.startedAt = Date.now();
     audioState.sessionId = newSessionId();
+    
+    // Sofort speichern
+    saveAudioState();
+    
     console.log(
       `[AUDIO] session started (${reason}) startedAt=${audioState.startedAt} sessionId=${audioState.sessionId} clients=${io.engine.clientsCount}`
     );
@@ -66,10 +87,10 @@ function ensureAudioSessionRunning(reason = "ensure") {
 }
 
 function maybeResetAudioSession() {
+  // Session bleibt erhalten, auch wenn keine Clients da sind
   if (io.engine.clientsCount === 0 && audioState.startedAt !== null) {
-    console.log("[AUDIO] session reset (no clients)");
-    audioState.startedAt = null;
-    audioState.sessionId = null;
+    console.log("[AUDIO] Alle Clients weg - Session läuft weiter (persistent)");
+    // audioState wird NICHT zurückgesetzt
   }
 }
 
@@ -150,6 +171,7 @@ app.get("/health", (_, res) => {
 app.post("/admin/audio/restart", express.json(), (_, res) => {
   audioState.startedAt = Date.now();
   audioState.sessionId = newSessionId();
+  saveAudioState();
   console.log(`[AUDIO] force restart startedAt=${audioState.startedAt} sessionId=${audioState.sessionId}`);
   io.emit("audio:state", audioState);
   res.json({ ok: true, audioState });
@@ -242,8 +264,10 @@ setInterval(() => {
   if (io.engine.clientsCount > 0 && audioState.startedAt) io.emit("audio:state", audioState);
 }, 10000);
 
+// Regelmäßiges Speichern - jetzt auch mit audioState
 setInterval(() => {
   try {
+    saveAudioState();
     fs.writeFileSync("canvasCommands.json", JSON.stringify(drawCommands));
     fs.writeFileSync("shirtInterests.json", JSON.stringify(shirtInterests));
   } catch {}
